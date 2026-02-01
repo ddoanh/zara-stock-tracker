@@ -7,8 +7,9 @@ from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+DEBUG = os.environ.get("DEBUG", "0") == "1"
 
-# Text signals (based on your screenshots)
+# Based on your screenshots
 IN_STOCK_MARKERS = ["add", "add to bag", "add to basket"]
 OUT_OF_STOCK_MARKERS = ["out of stock", "sold out", "not available", "view similar out of stock"]
 
@@ -20,7 +21,7 @@ def telegram(msg: str) -> None:
 def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip().lower())
 
-def contains_marker(text: str, markers: list[str]) -> bool:
+def contains_any(text: str, markers: list[str]) -> bool:
     for m in markers:
         if re.search(rf"\b{re.escape(m)}\b", text):
             return True
@@ -34,8 +35,10 @@ def load_prev_state(state_file: str) -> dict[str, str]:
                 line = line.strip()
                 if not line:
                     continue
-                k, v = line.split("\t")
-                prev[k] = v
+                # format: key \t state
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    prev[parts[0]] = parts[1]
     return prev
 
 def save_state(state_file: str, new: dict[str, str]) -> None:
@@ -43,36 +46,37 @@ def save_state(state_file: str, new: dict[str, str]) -> None:
         for k, v in new.items():
             f.write(f"{k}\t{v}\n")
 
-def detect_stock_with_browser(page, url: str) -> bool | None:
+def detect_stock(page, url: str) -> tuple[bool | None, str]:
     """
-    Loads the page with JS enabled and checks visible text for stock signals.
-    Returns: True (in stock), False (out of stock), None (can't tell)
+    Returns (status, evidence_text)
+      status: True=in stock, False=out of stock, None=unknown
+      evidence_text: short debug snippet
     """
-    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    page.goto(url, wait_until="networkidle", timeout=60000)
+    page.wait_for_timeout(2000)
 
-    # Wait a bit for JS to render buttons (Zara can be slow)
-    page.wait_for_timeout(4000)
+    body_text = norm(page.inner_text("body"))
 
-    # Grab visible page text
-    text = norm(page.inner_text("body"))
+    # Try strict decision first
+    if contains_any(body_text, OUT_OF_STOCK_MARKERS):
+        return False, "matched out-of-stock marker in body text"
+    if contains_any(body_text, IN_STOCK_MARKERS):
+        return True, "matched in-stock marker in body text"
 
-    # Decide
-    if contains_marker(text, OUT_OF_STOCK_MARKERS):
-        return False
-    if contains_marker(text, IN_STOCK_MARKERS):
-        return True
-
-    return None
+    # If still unknown, return a small snippet to debug
+    snippet = body_text[:400]
+    return None, f"no markers found; snippet={snippet!r}"
 
 def main() -> None:
     with open("products.txt", "r", encoding="utf-8") as f:
         urls = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
-    state_file = "state.txt"
-    prev = load_prev_state(state_file)
-
+    prev = load_prev_state("state.txt")
     new: dict[str, str] = {}
     notifications: list[str] = []
+
+    # Optional one-time test (remove after you’re done troubleshooting)
+    # telegram("🧪 Zara checker started a run")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -89,24 +93,29 @@ def main() -> None:
             key = hashlib.sha1(url.encode("utf-8")).hexdigest()
 
             try:
-                status = detect_stock_with_browser(page, url)
-            except Exception:
-                status = None
+                status, evidence = detect_stock(page, url)
+            except Exception as e:
+                status, evidence = None, f"exception: {e!r}"
 
-            # 1=in stock, 0=out of stock, ?=unknown
-            new_state = "1" if status is True else "0" if status is False else "?"
-            new[key] = new_state
+            state = "1" if status is True else "0" if status is False else "?"
+            new[key] = state
 
-            # Notify when it becomes in stock (or first time tracked as in stock)
+            if DEBUG:
+                print("URL:", url)
+                print("STATE:", state)
+                print("EVIDENCE:", evidence)
+                print("-" * 60)
+
+            # Notify on transition to in-stock
             if status is True and prev.get(key) != "1":
                 notifications.append(f"✅ Back in stock (ADD available):\n{url}")
 
-            time.sleep(2)  # be polite
+            time.sleep(1)
 
         context.close()
         browser.close()
 
-    save_state(state_file, new)
+    save_state("state.txt", new)
 
     if notifications:
         telegram("\n\n".join(notifications))
