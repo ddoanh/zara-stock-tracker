@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -21,24 +24,47 @@ jobs:
       - run: pip install requests playwright
       - run: python -m playwright install --with-deps chromium
 
-      - run: python check.py
+      # Run checker in DEBUG mode so logs show detection results
+      - name: Run checker
+        run: python check.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEBUG: "1"
 
+      # Show state.txt right in the workflow logs
+      - name: Show state.txt
+        run: |
+          echo "---- state.txt (after run) ----"
+          ls -la
+          if [ -f state.txt ]; then
+            cat state.txt
+          else
+            echo "state.txt NOT FOUND"
+          fi
+
+      # Commit + push state.txt (if changed)
       - name: Commit state.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if [ -f state.txt ]; then
-            git add state.txt
-            if ! git diff --cached --quiet; then
-              git commit -m "Update state"
-              git push
-            else
-              echo "No state changes to commit."
-            fi
-          else
-            echo "state.txt not found."
+          if [ ! -f state.txt ]; then
+            echo "state.txt not found; nothing to commit."
+            exit 0
           fi
+
+          git add state.txt
+          git status
+
+          if git diff --cached --quiet; then
+            echo "No changes in state.txt to commit."
+            exit 0
+          fi
+
+          git commit -m "Update state"
+          # Push using the token explicitly
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:main
