@@ -77,9 +77,7 @@ def fetch_action_texts(url: str) -> list[str]:
     soup = BeautifulSoup(r.text, "html.parser")
     return extract_action_texts(soup)
 
-def main() -> None:
-    telegram("🧪 Zara checker is running correctly.")
-    
+def main() -> None:    
     with open("products.txt", "r", encoding="utf-8") as f:
         urls = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
