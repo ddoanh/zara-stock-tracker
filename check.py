@@ -16,17 +16,18 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Signals based on your screenshots
-IN_STOCK_BUTTON_TEXTS = {
+# Based on your screenshots
+IN_STOCK_MARKERS = [
     "add",
     "add to bag",
     "add to basket",
-}
-OUT_OF_STOCK_TEXTS = {
+]
+OUT_OF_STOCK_MARKERS = [
     "out of stock",
     "sold out",
     "not available",
-}
+    "view similar out of stock",  # sometimes Zara combines these
+]
 
 def telegram(msg: str) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -38,65 +39,97 @@ def norm(s: str) -> str:
 
 def extract_action_texts(soup: BeautifulSoup) -> list[str]:
     """
-    Collect text from clickable purchase-related elements.
-    Zara's DOM changes a lot, so we grab button-like elements broadly.
+    Collect text from clickable elements.
+    Zara's DOM changes often, so we grab "button-ish" elements broadly.
     """
-    texts = []
+    texts: list[str] = []
     for el in soup.select("button, a[role='button'], div[role='button']"):
         t = norm(el.get_text(" ", strip=True))
         if not t:
             continue
-        # Keep only short-ish action-ish texts to reduce noise
-        if len(t) <= 60:
+        if len(t) <= 80:
             texts.append(t)
     return texts
 
-def is_in_stock_from_texts(action_texts: list[str]) -> bool | None:
+def fetch_page(url: str) -> tuple[list[str], str]:
     """
     Returns:
-      True  -> looks in stock
-      False -> looks out of stock
-      None  -> can't tell (page layout or language differs)
+      - action_texts: texts from button-like elements
+      - html_norm: normalized full HTML (fallback when button text is JS-rendered)
+    """
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    r.raise_for_status()
+    html = r.text
+    soup = BeautifulSoup(html, "html.parser")
+    action_texts = extract_action_texts(soup)
+    html_norm = norm(html)
+    return action_texts, html_norm
+
+def contains_marker(text: str, markers: list[str]) -> bool:
+    for m in markers:
+        # word-boundary helps avoid accidental matches
+        if re.search(rf"\b{re.escape(m)}\b", text):
+            return True
+    return False
+
+def detect_stock(action_texts: list[str], html_norm: str) -> bool | None:
+    """
+    Returns:
+      True  -> in stock (ADD detected)
+      False -> out of stock detected
+      None  -> can't tell
     """
     joined = " | ".join(action_texts)
 
-    # Strong out-of-stock signal (matches your screenshot where button includes "OUT OF STOCK")
-    if any(oos in joined for oos in OUT_OF_STOCK_TEXTS):
-        # If the page says out of stock anywhere in action area, treat as sold out.
+    # Prefer signals from buttons/CTAs
+    if contains_marker(joined, OUT_OF_STOCK_MARKERS):
         return False
+    if contains_marker(joined, IN_STOCK_MARKERS):
+        return True
 
-    # Strong in-stock signal (your screenshot has a big "ADD" button)
-    if any(re.search(rf"\b{re.escape(txt)}\b", joined) for txt in IN_STOCK_BUTTON_TEXTS):
+    # Fallback: search entire HTML text (helps when Zara renders buttons via JS)
+    if contains_marker(html_norm, OUT_OF_STOCK_MARKERS):
+        return False
+    if contains_marker(html_norm, IN_STOCK_MARKERS):
         return True
 
     return None
 
-def fetch_action_texts(url: str) -> list[str]:
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-    return extract_action_texts(soup)
+def load_prev_state(state_file: str) -> dict[str, str]:
+    prev: dict[str, str] = {}
+    if os.path.exists(state_file):
+        with open(state_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                k, v = line.split("\t")
+                prev[k] = v
+    return prev
 
-def main() -> None:    
+def save_state(state_file: str, new: dict[str, str]) -> None:
+    with open(state_file, "w", encoding="utf-8") as f:
+        for k, v in new.items():
+            f.write(f"{k}\t{v}\n")
+
+def main() -> None:
+    # Read URLs
     with open("products.txt", "r", encoding="utf-8") as f:
         urls = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
     state_file = "state.txt"
-    prev = {}
-    if os.path.exists(state_file):
-        for line in open(state_file, "r", encoding="utf-8"):
-            k, v = line.rstrip("\n").split("\t")
-            prev[k] = v
+    prev = load_prev_state(state_file)
 
-    new = {}
-    notifications = []
+    new: dict[str, str] = {}
+    notifications: list[str] = []
 
     for url in urls:
+        # stable key per URL
         key = hashlib.sha1(url.encode("utf-8")).hexdigest()
 
         try:
-            action_texts = fetch_action_texts(url)
-            status = is_in_stock_from_texts(action_texts)
+            action_texts, html_norm = fetch_page(url)
+            status = detect_stock(action_texts, html_norm)
         except Exception:
             status = None
 
@@ -104,15 +137,14 @@ def main() -> None:
         new_state = "1" if status is True else "0" if status is False else "?"
         new[key] = new_state
 
-        # Notify only on transition to in-stock
+        # ✅ Notify when it becomes in stock (or first time tracked as in stock)
         if status is True and prev.get(key) != "1":
-            notifications.append(f"✅ Back in stock:\n{url}")
+            notifications.append(f"✅ Back in stock (ADD available):\n{url}")
 
-        time.sleep(2)  # be polite
+        # Be polite to Zara
+        time.sleep(2)
 
-    with open(state_file, "w", encoding="utf-8") as f:
-        for k, v in new.items():
-            f.write(f"{k}\t{v}\n")
+    save_state(state_file, new)
 
     if notifications:
         telegram("\n\n".join(notifications))
