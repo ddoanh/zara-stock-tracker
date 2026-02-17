@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Policy Navigator — Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@300;400;600;700&display=swap');
+
+:root {
+–bg: #0a0e1a;
+–surface: #111827;
+–surface2: #1a2235;
+–border: #1e3a5f;
+–accent: #0ea5e9;
+–accent2: #38bdf8;
+–green: #10b981;
+–orange: #f59e0b;
+–red: #ef4444;
+–purple: #a78bfa;
+–text: #e2e8f0;
+–muted: #64748b;
+–orch: #0c2d4a;
+–orch-border: #0ea5e9;
+}
+
+- { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+background: var(–bg);
+font-family: ‘Sora’, sans-serif;
+color: var(–text);
+min-height: 100vh;
+padding: 40px 32px;
+position: relative;
+overflow-x: hidden;
+}
+
+body::before {
+content: ‘’;
+position: fixed;
+top: -200px; left: -200px;
+width: 600px; height: 600px;
+background: radial-gradient(circle, rgba(14,165,233,0.06) 0%, transparent 70%);
+pointer-events: none;
+}
+
+body::after {
+content: ‘’;
+position: fixed;
+bottom: -200px; right: -200px;
+width: 500px; height: 500px;
+background: radial-gradient(circle, rgba(167,139,250,0.05) 0%, transparent 70%);
+pointer-events: none;
+}
+
+header {
+margin-bottom: 40px;
+}
+
+.label-tag {
+font-family: ‘JetBrains Mono’, monospace;
+font-size: 11px;
+color: var(–accent);
+letter-spacing: 3px;
+text-transform: uppercase;
+margin-bottom: 8px;
+}
+
+h1 {
+font-size: 28px;
+font-weight: 700;
+color: #fff;
+letter-spacing: -0.5px;
+}
+
+h1 span {
+color: var(–accent);
+}
+
+.subtitle {
+font-size: 13px;
+color: var(–muted);
+margin-top: 4px;
+font-weight: 300;
+}
+
+/* ── DIAGRAM WRAPPER ── */
+.diagram {
+display: flex;
+flex-direction: column;
+gap: 0;
+max-width: 1100px;
+margin: 0 auto;
+}
+
+/* Row layout */
+.row {
+display: flex;
+align-items: center;
+gap: 0;
+position: relative;
+}
+
+.row-center {
+justify-content: center;
+}
+
+/* ── NODE STYLES ── */
+.node {
+background: var(–surface);
+border: 1px solid var(–border);
+border-radius: 10px;
+padding: 14px 18px;
+position: relative;
+transition: border-color 0.2s;
+flex-shrink: 0;
+}
+
+.node:hover { border-color: var(–accent); }
+
+.node-title {
+font-size: 13px;
+font-weight: 600;
+color: #fff;
+margin-bottom: 4px;
+}
+
+.node-desc {
+font-size: 11px;
+color: var(–muted);
+line-height: 1.5;
+font-weight: 300;
+}
+
+.node-icon {
+font-size: 18px;
+margin-bottom: 6px;
+}
+
+/* Colors */
+.node-user     { border-color: #334155; width: 140px; text-align: center; }
+.node-user .node-title { color: var(–text); }
+
+.node-orch     {
+border: 2px dashed var(–orch-border);
+background: var(–orch);
+border-radius: 14px;
+padding: 20px 24px;
+}
+
+.orch-label {
+font-family: ‘JetBrains Mono’, monospace;
+font-size: 10px;
+color: var(–accent2);
+letter-spacing: 2px;
+text-transform: uppercase;
+margin-bottom: 14px;
+display: flex;
+align-items: center;
+gap: 6px;
+}
+
+.orch-label::before {
+content: ‘’;
+display: inline-block;
+width: 6px; height: 6px;
+background: var(–accent);
+border-radius: 50%;
+animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+0%, 100% { opacity: 1; transform: scale(1); }
+50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.orch-inner {
+display: flex;
+gap: 12px;
+align-items: stretch;
+}
+
+.sub-node {
+background: var(–surface2);
+border: 1px solid #1e3a5f;
+border-radius: 8px;
+padding: 12px 14px;
+flex: 1;
+min-width: 160px;
+}
+
+.sub-node-title {
+font-size: 12px;
+font-weight: 600;
+color: #fff;
+margin-bottom: 4px;
+display: flex;
+align-items: center;
+gap: 6px;
+}
+
+.sub-node-desc {
+font-size: 10px;
+color: var(–muted);
+line-height: 1.5;
+font-weight: 300;
+}
+
+.badge {
+font-family: ‘JetBrains Mono’, monospace;
+font-size: 9px;
+padding: 2px 6px;
+border-radius: 4px;
+font-weight: 600;
+letter-spacing: 0.5px;
+}
+
+.badge-blue  { background: rgba(14,165,233,0.15); color: var(–accent2); }
+.badge-green { background: rgba(16,185,129,0.15); color: var(–green); }
+.badge-orange{ background: rgba(245,158,11,0.15); color: var(–orange); }
+.badge-purple{ background: rgba(167,139,250,0.15); color: var(–purple); }
+.badge-red   { background: rgba(239,68,68,0.15); color: var(–red); }
+
+.node-valid   { width: 200px; }
+.node-sme     { width: 200px; }
+.node-output  { width: 140px; text-align: center; border-color: var(–green); }
+.node-output .node-title { color: var(–green); }
+
+/* ── ARROWS ── */
+.arrow-h {
+display: flex;
+align-items: center;
+flex-shrink: 0;
+padding: 0 4px;
+}
+
+.arrow-line {
+height: 2px;
+background: linear-gradient(90deg, var(–border), var(–muted));
+position: relative;
+}
+
+.arrow-line::after {
+content: ‘’;
+position: absolute;
+right: -1px; top: 50%;
+transform: translateY(-50%);
+border-left: 8px solid var(–muted);
+border-top: 5px solid transparent;
+border-bottom: 5px solid transparent;
+}
+
+.arrow-h-short .arrow-line { width: 32px; }
+.arrow-h-med   .arrow-line { width: 48px; }
+
+/* Vertical arrow container */
+.v-arrow-wrap {
+display: flex;
+justify-content: center;
+align-items: center;
+height: 36px;
+position: relative;
+}
+
+.v-arrow {
+width: 2px;
+height: 28px;
+background: linear-gradient(180deg, var(–border), var(–muted));
+position: relative;
+}
+
+.v-arrow::after {
+content: ‘’;
+position: absolute;
+bottom: -1px; left: 50%;
+transform: translateX(-50%);
+border-top: 8px solid var(–muted);
+border-left: 5px solid transparent;
+border-right: 5px solid transparent;
+}
+
+/* Fail arrow — curved red */
+.fail-row {
+display: flex;
+align-items: center;
+justify-content: flex-end;
+padding-right: 60px;
+height: 40px;
+position: relative;
+}
+
+.fail-label {
+font-family: ‘JetBrains Mono’, monospace;
+font-size: 10px;
+color: var(–red);
+letter-spacing: 1px;
+background: rgba(239,68,68,0.1);
+border: 1px solid rgba(239,68,68,0.3);
+border-radius: 4px;
+padding: 3px 8px;
+margin-right: 8px;
+}
+
+.fail-arrow-svg {
+position: absolute;
+bottom: -20px;
+right: 40px;
+pointer-events: none;
+}
+
+/* GCP chips row */
+.gcp-row {
+display: flex;
+flex-wrap: wrap;
+gap: 8px;
+margin-top: 32px;
+padding-top: 24px;
+border-top: 1px solid #1a2235;
+}
+
+.gcp-chip {
+display: flex;
+align-items: center;
+gap: 6px;
+background: var(–surface);
+border: 1px solid var(–border);
+border-radius: 20px;
+padding: 5px 12px;
+font-size: 11px;
+color: var(–muted);
+font-weight: 400;
+}
+
+.gcp-chip-dot {
+width: 6px; height: 6px;
+border-radius: 50%;
+flex-shrink: 0;
+}
+
+/* Legend */
+.legend {
+display: flex;
+gap: 20px;
+margin-top: 24px;
+flex-wrap: wrap;
+}
+
+.legend-item {
+display: flex;
+align-items: center;
+gap: 6px;
+font-size: 11px;
+color: var(–muted);
+}
+
+.legend-line {
+width: 20px; height: 2px;
+}
+
+/* sub-arrows inside orch */
+.sub-arrow {
+display: flex;
+align-items: center;
+flex-shrink: 0;
+}
+
+.sub-arrow-line {
+width: 20px;
+height: 2px;
+background: #2d4a6a;
+position: relative;
+}
+
+.sub-arrow-line::after {
+content: ‘’;
+position: absolute;
+right: -1px; top: 50%;
+transform: translateY(-50%);
+border-left: 6px solid #2d4a6a;
+border-top: 4px solid transparent;
+border-bottom: 4px solid transparent;
+}
+
+/* full-width orchestration layout */
+.main-flow {
+display: flex;
+align-items: center;
+gap: 0;
+width: 100%;
+}
+
+.orch-wrapper {
+flex: 1;
+}
+
+/* vertical section below orch */
+.below-orch {
+display: flex;
+flex-direction: column;
+align-items: flex-end;
+padding-right: 100px;
+}
+</style>
+
+</head>
+<body>
+
+<header>
+  <div class="label-tag">// solution design v2</div>
+  <h1>HR Policy Navigator — <span>Orchestrated Architecture</span></h1>
+  <div class="subtitle">Airbus Amber · GCP · RAG + Agent Pipeline</div>
+</header>
+
+<div class="diagram">
+
+  <!-- ROW 1: User → Orch Agent (with 3 sub-steps) → -->
+
+  <div class="main-flow">
+
+```
+<!-- User Input -->
+<div class="node node-user">
+  <div class="node-icon">👤</div>
+  <div class="node-title">User Input</div>
+  <div class="node-desc">Natural language HR query</div>
+</div>
+
+<!-- Arrow -->
+<div class="arrow-h arrow-h-med"><div class="arrow-line"></div></div>
+
+<!-- Orchestration Agent wrapping 3 steps -->
+<div class="node-orch orch-wrapper">
+  <div class="orch-label">Orchestration Agent · Gemini + LangChain / Vertex AI Agent</div>
+  <div class="orch-inner">
+
+    <!-- Step 1 -->
+    <div class="sub-node">
+      <div class="sub-node-title">
+        <span class="badge badge-blue">01</span>
+        Policy Retrieval
+      </div>
+      <div class="sub-node-desc">Query rewriting → vector search → retrieve top-k passages from document repo</div>
+      <br/>
+      <div class="sub-node-desc" style="color:#334155">
+        <span class="badge badge-blue">Vertex AI Vector Search</span>
+      </div>
+    </div>
+
+    <!-- Sub arrow -->
+    <div class="sub-arrow"><div class="sub-arrow-line"></div></div>
+
+    <!-- Step 2 -->
+    <div class="sub-node">
+      <div class="sub-node-title">
+        <span class="badge badge-orange">02</span>
+        Citation Mapping
+      </div>
+      <div class="sub-node-desc">Map passages → document metadata · generate verifiable source references</div>
+      <br/>
+      <div class="sub-node-desc">
+        <span class="badge badge-orange">Firestore · Cloud Storage</span>
+      </div>
+    </div>
+
+    <!-- Sub arrow -->
+    <div class="sub-arrow"><div class="sub-arrow-line"></div></div>
+
+    <!-- Step 3 -->
+    <div class="sub-node">
+      <div class="sub-node-title">
+        <span class="badge badge-purple">03</span>
+        Drafting
+      </div>
+      <div class="sub-node-desc">Generate grounded response strictly from mapped evidence + attach citations</div>
+      <br/>
+      <div class="sub-node-desc">
+        <span class="badge badge-purple">Gemini 1.5 Pro</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Orchestrator responsibilities note -->
+  <div style="margin-top:12px; padding-top:12px; border-top:1px solid #1a3050; display:flex; gap:16px; flex-wrap:wrap;">
+    <div style="font-size:10px; color:#2d6a8a; font-family:'JetBrains Mono',monospace;">manages: retry logic · step routing · context passing · failure detection</div>
+  </div>
+</div>
+
+<!-- Arrow out of orch -->
+<div class="arrow-h arrow-h-med"><div class="arrow-line"></div></div>
+
+<!-- Validation Agent -->
+<div class="node node-valid">
+  <div class="node-icon">🔍</div>
+  <div class="sub-node-title" style="font-size:13px; margin-bottom:4px;">Validation Agent</div>
+  <div class="node-desc">Hallucination detection · QA scoring · confidence threshold check</div>
+  <br/>
+  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+    <span class="badge badge-green">PASS</span>
+    <span class="badge badge-red">FAIL</span>
+  </div>
+</div>
+```
+
+  </div>
+
+  <!-- FAIL arrow back to orch -->
+
+  <div style="display:flex; justify-content:flex-end; padding-right: 220px; margin: 6px 0;">
+    <svg width="340" height="44" viewBox="0 0 340 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M 330 10 Q 330 38 170 38 Q 10 38 10 10" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#redArrow)"/>
+      <text x="155" y="34" fill="#ef4444" font-family="JetBrains Mono" font-size="9" letter-spacing="1">FAIL · Reground &amp; Regenerate</text>
+      <defs>
+        <marker id="redArrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+          <path d="M0,0 L0,8 L8,4 z" fill="#ef4444"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <!-- PASS vertical arrow + SME node -->
+
+  <div class="below-orch">
+    <div class="v-arrow-wrap">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+        <span class="badge badge-green" style="margin-bottom:4px;">PASS</span>
+        <div class="v-arrow"></div>
+      </div>
+    </div>
+
+```
+<div class="node node-sme">
+  <div class="node-icon">👩‍💼</div>
+  <div class="sub-node-title" style="font-size:13px; margin-bottom:4px;">SME Validation Loop</div>
+  <div class="node-desc">Human review · final approval · report generation · feedback to knowledge base</div>
+</div>
+
+<div class="v-arrow-wrap" style="margin-top:0;">
+  <div class="v-arrow"></div>
+</div>
+
+<!-- Final output -->
+<div class="node node-output">
+  <div class="node-icon">✅</div>
+  <div class="node-title">Response</div>
+  <div class="node-desc">Cited · validated · delivered</div>
+</div>
+```
+
+  </div>
+
+</div>
+
+<!-- GCP Stack -->
+
+<div style="max-width:1100px; margin: 0 auto;">
+  <div class="gcp-row">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; width:100%; margin-bottom:4px;">GCP Infrastructure</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#0ea5e9"></div>Vertex AI Vector Search</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#a78bfa"></div>Gemini 1.5 Pro</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#10b981"></div>Vertex AI Embeddings</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#f59e0b"></div>Cloud Storage (Policy Docs)</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#38bdf8"></div>Cloud Run (Orchestrator)</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#fb923c"></div>Firestore (Metadata)</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#34d399"></div>BigQuery (Audit Logs)</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#c084fc"></div>Pub/Sub (Doc Ingestion)</div>
+    <div class="gcp-chip"><div class="gcp-chip-dot" style="background:#94a3b8"></div>Cloud Armor + IAM</div>
+  </div>
+
+  <!-- Legend -->
+
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-line" style="background: var(--muted)"></div>
+      Normal flow
+    </div>
+    <div class="legend-item">
+      <div class="legend-line" style="background: var(--red); border-top: 1px dashed var(--red)"></div>
+      Fail · reground loop
+    </div>
+    <div class="legend-item">
+      <div style="width:14px;height:14px;border:1.5px dashed var(--accent);border-radius:3px;"></div>
+      Orchestration boundary
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
